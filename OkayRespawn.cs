@@ -4,7 +4,6 @@ using System.Linq;
 using Terraria;
 using Terraria.Audio;
 using Terraria.DataStructures;
-using Terraria.Enums;
 using Terraria.GameContent.Achievements;
 using Terraria.GameInput;
 using Terraria.ID;
@@ -16,7 +15,6 @@ namespace OkayRespawn
 
 	public class OkayRespawnPlayer : ModPlayer
 	{
-        private const float MAXIMUM_DISTANCE = 500f;
 
         public override void Kill(double damage, int hitDirection, bool pvp, PlayerDeathReason damageSource)
         {
