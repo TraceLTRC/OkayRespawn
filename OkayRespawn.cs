@@ -2,9 +2,13 @@ using Microsoft.Xna.Framework;
 using System;
 using System.Linq;
 using Terraria;
+using Terraria.Audio;
 using Terraria.DataStructures;
+using Terraria.Enums;
+using Terraria.GameContent.Achievements;
 using Terraria.GameInput;
 using Terraria.ID;
+using Terraria.Localization;
 using Terraria.ModLoader;
 
 namespace OkayRespawn
@@ -16,32 +20,145 @@ namespace OkayRespawn
 
         public override void Kill(double damage, int hitDirection, bool pvp, PlayerDeathReason damageSource)
         {
+            OkayRespawnConfig config = GetConfigInstance();
+
+            // Respawn handling
+            int respawnTimer = (int)(OkayRespawnConfig.DefaultRespawnTimer * config.RespawnScale);
             
+            // Using exact logic from vanilla
+            bool isBossAlive = false;
+            if (Main.netMode != 0 && !pvp)
+            {
+                for (int k = 0; k < 200; k++)
+                {
+                    if (Main.npc[k].active && (Main.npc[k].boss || Main.npc[k].type == 13 || Main.npc[k].type == 14 || Main.npc[k].type == 15) && Math.Abs(Player.Center.X - Main.npc[k].Center.X) + Math.Abs(Player.Center.Y - Main.npc[k].Center.Y) < 4000f)
+                    {
+                        isBossAlive = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isBossAlive)
+            {
+                respawnTimer += (int)(OkayRespawnConfig.DefaultBossTimerAddition * GetConfigInstance().RespawnScaleBoss);
+            }
+            if (Main.expertMode)
+            {
+                respawnTimer = (int)((double)respawnTimer * GetConfigInstance().RespawnScaleExpert);
+            }
+
+            Player.respawnTimer = respawnTimer;
         }
 
         public override void OnRespawn(Player player)
         {
-            
-            
+            if (player.whoAmI != Main.myPlayer) return;
+
+            // Auto nurse on respawn
+            OkayRespawnConfig config = GetConfigInstance();
+            NurseHealMode healMode = OkayRespawnConfig.NurseModeFromString(config.AutoNurseMode);
+
+            if ((healMode == NurseHealMode.OnDeathWithBoss && IsBossActive()) || healMode == NurseHealMode.OnDeath)
+            {
+                NPC nurse = GetNurse();
+                if (nurse == null) return;
+
+                NurseHeal(player, nurse);
+            }
         }
 
         public override void ProcessTriggers(TriggersSet triggersSet)
         {
             if (KeybindSystem.NurseDistanceKeybind.JustPressed)
             {
-                NurseHealMode mode = GetNurseHealMode();
-                Main.NewText($"The current mode is {mode}");
+                Player player = Main.LocalPlayer;
+                NPC nurse = GetNurse();
+                if (nurse == null) return;
+
+                if (GetConfigInstance().QuickNurseRange > Vector2.Distance(player.Center, nurse.Center))
+                {
+                    NurseHeal(player, nurse);
+                } 
+                else
+                {
+                    Main.NewText("You are too far from the nurse!", Color.Red);
+                }
             }
-        }   
+        }
+
+        /// <summary>
+        /// Heals the player as if it was healed by a nurse
+        /// </summary>
+        /// <param name="nurse">The NPC instance of the nurse</param>
+        /// <param name="player">The plyaer to heal</param>
+        /// <param name="removeDebuffs">If debuffs should be removed after heal</param>
+        /// <param name="nurseReply">If the nurse should reply in chat</param>
+        private void NurseHeal(Player player, NPC nurse, bool nurseReply = true)
+        {
+            int price = GetNursePrice(player);
+            int health = player.statLifeMax2 - player.statLife;
+            bool removeDebuffs = true;
+            string reason = Language.GetTextValue("tModLoader.DefaultNurseCantHealChat");
+
+            bool canHeal = PlayerLoader.ModifyNurseHeal(player, nurse, ref health, ref removeDebuffs, ref reason);
+            PlayerLoader.ModifyNursePrice(player, nurse, health, removeDebuffs, ref price);
+
+            if (!canHeal)
+            {
+                Main.NewText($"[Nurse]: {reason}");
+            }
+            else if (player.BuyItem(price))
+            {
+                AchievementsHelper.HandleNurseService(price);
+                SoundEngine.PlaySound(in SoundID.Item4);
+                player.HealEffect(health);
+
+                if (nurseReply)
+                {
+                    string response = Lang.dialog(230);
+
+                    if ((double)player.statLife < (double)player.statLifeMax2 * 0.25)
+                    {
+                        response = Lang.dialog(227);
+                    }
+                    else if ((double)player.statLife < (double)player.statLifeMax2 * 0.5)
+                    {
+                        response = Lang.dialog(228);
+                    }
+                    else if ((double)player.statLife < (double)player.statLifeMax2 * 0.75)
+                    {
+                        response = Lang.dialog(229);
+                    }
+
+                    Main.NewText($"[Nurse]: {response}");
+                }
+
+                player.statLife += health;
+
+                if (removeDebuffs)
+                {
+                    for (int l = 0; l < Player.MaxBuffs; l++)
+                    {
+                        int buffType = player.buffType[l];
+                        if (Main.debuff[buffType] && Main.player[Main.myPlayer].buffTime[l] > 0 && (buffType < 0 || !BuffID.Sets.NurseCannotRemoveDebuff[buffType]))
+                        {
+                            Main.player[Main.myPlayer].DelBuff(l);
+                            l = -1;
+                        }
+                    }
+                }
+            }
+        }
 
         private bool IsBossActive()
         {
-            return Main.npc.Any(npc => npc.active && npc.boss);
+            // Different from vanilla, doesn't consider range of the player.
+            return Main.npc.Any(npc => npc.active && (npc.boss || npc.type == 13 || npc.type == 14 || npc.type == 15));
         }
 
-        private int GetNursePrice()
+        private int GetNursePrice(Player player)
         {
-            Player player = Main.LocalPlayer;
             
             int health = player.statLifeMax2 - player.statLife;
             int price = health;
@@ -95,37 +212,14 @@ namespace OkayRespawn
             return price;
         }
 
-        private bool IsNurseNearby()
-        {
-            Player player = Main.LocalPlayer;
-            NPC nurse = GetNurse();
-            if (nurse == null) return false;
-
-            return Vector2.Distance(player.Center, nurse.Center) > MAXIMUM_DISTANCE;
-        }
-
-        private float GetNurseDistance()
-        {
-            Player player = Main.LocalPlayer;
-            NPC nurse = GetNurse();
-            if (nurse == null) return 0;
-
-            return Vector2.Distance(player.Center, nurse.Center);
-        }
-
         private NPC GetNurse()
         {
             return Main.npc.FirstOrDefault(npc => npc.active && npc.type == NPCID.Nurse);
         }
 
-        private NurseHealMode GetNurseHealMode()
+        private OkayRespawnConfig GetConfigInstance()
         {
-            return OkayRespawnConfig.NurseModeFromString(ModContent.GetInstance<OkayRespawnConfig>().nurseHealMode);
-        }
-
-        private float GetNurseQuickHealRange()
-        {
-            return ModContent.GetInstance<OkayRespawnConfig>().nurseQuickHealRange;
+            return ModContent.GetInstance<OkayRespawnConfig>();
         }
     }
 }

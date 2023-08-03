@@ -13,7 +13,7 @@ namespace OkayRespawn
 
         public override void Load()
         {
-            NurseDistanceKeybind = KeybindLoader.RegisterKeybind(Mod, "Quick Nurse Heal", "K");
+            NurseDistanceKeybind = KeybindLoader.RegisterKeybind(Mod, "Quick Nurse", "K");
         }
 
         public override void Unload()
