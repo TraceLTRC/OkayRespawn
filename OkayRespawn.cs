@@ -146,6 +146,8 @@ namespace OkayRespawn
                         }
                     }
                 }
+
+                PlayerLoader.PostNurseHeal(player, nurse, health, removeDebuffs, price);
             }
         }
 
