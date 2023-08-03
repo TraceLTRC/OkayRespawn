@@ -139,9 +139,9 @@ namespace OkayRespawn
                     for (int l = 0; l < Player.MaxBuffs; l++)
                     {
                         int buffType = player.buffType[l];
-                        if (Main.debuff[buffType] && Main.player[Main.myPlayer].buffTime[l] > 0 && (buffType < 0 || !BuffID.Sets.NurseCannotRemoveDebuff[buffType]))
+                        if (Main.debuff[buffType] && player.buffTime[l] > 0 && (buffType < 0 || !BuffID.Sets.NurseCannotRemoveDebuff[buffType]))
                         {
-                            Main.player[Main.myPlayer].DelBuff(l);
+                            player.DelBuff(l);
                             l = -1;
                         }
                     }
